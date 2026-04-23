@@ -46,8 +46,8 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
     df_otm = df[df['Estado'] == 'OTM']
     
     # Extraer Top 2 Calls y Puts OTM
-    calls_top2 = df_otm[df_otm['Tipo'] == 'CALL'].sort_values(by='volume', ascending=False).head(2)
-    puts_top2 = df_otm[df_otm['Tipo'] == 'PUT'].sort_values(by='volume', ascending=False).head(2)
+    calls_top2 = df_otm[df_otm['Tipo'] == 'CALL'].sort_values(by='volume', ascending=False).head(9)
+    puts_top2 = df_otm[df_otm['Tipo'] == 'PUT'].sort_values(by='volume', ascending=False).head(9)
     
     tabla_final = pd.concat([calls_top2, puts_top2]).sort_values(by='volume', ascending=False)
     
