@@ -11,7 +11,6 @@ app.add_middleware(
     allow_methods=["GET"],
 )
 
-# Ahora la ruta acepta una fecha opcional: /liquidez/GLD?fecha=2026-04-17
 @app.get("/liquidez/{ticker}")
 def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
     ticker = ticker.upper()
@@ -26,7 +25,6 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
         return {"error": "No se pudo conectar al precio spot."}
     precio_actual = historial['Close'].iloc[-1]
     
-    # Lógica de Fecha: Usar la ingresada si es válida, si no, usar la más próxima
     if fecha and fecha in fechas:
         target_date = fecha
     else:
@@ -45,11 +43,11 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
     
     df_otm = df[df['Estado'] == 'OTM']
     
-    # Extraer Top 2 Calls y Puts OTM
-    calls_top2 = df_otm[df_otm['Tipo'] == 'CALL'].sort_values(by='volume', ascending=False).head(9)
-    puts_top2 = df_otm[df_otm['Tipo'] == 'PUT'].sort_values(by='volume', ascending=False).head(9)
+    # --- AQUÍ ESTÁ EL CAMBIO A TOP 9 ---
+    calls_top9 = df_otm[df_otm['Tipo'] == 'CALL'].sort_values(by='volume', ascending=False).head(9)
+    puts_top9 = df_otm[df_otm['Tipo'] == 'PUT'].sort_values(by='volume', ascending=False).head(9)
     
-    tabla_final = pd.concat([calls_top2, puts_top2]).sort_values(by='volume', ascending=False)
+    tabla_final = pd.concat([calls_top9, puts_top9]).sort_values(by='volume', ascending=False)
     
     if tabla_final.empty:
         return {"error": "No se encontraron contratos OTM con volumen."}
