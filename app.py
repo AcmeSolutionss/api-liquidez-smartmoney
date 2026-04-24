@@ -16,26 +16,25 @@ app.add_middleware(
     allow_methods=["GET"],
 )
 
-# --- ESCUDO ANTI-BANEO (CACHÉ EN MEMORIA) ---
-# Guardaremos las respuestas aquí para no saturar a Yahoo Finance
+# Escudo Anti-Baneo de Yahoo
 CACHE = {}
-TIEMPO_EXPIRACION = 120  # 120 segundos (2 minutos) de vida útil por dato
+TIEMPO_EXPIRACION = 120 
 
 @app.get("/liquidez/{ticker}")
-def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
+def obtener_liquidez_otm(ticker: str, fecha: str = Query(None), top: int = Query(9)):
     try:
         ticker = ticker.upper()
         
-        # 1. VERIFICAR EL CACHÉ ANTES DE LLAMAR A YAHOO
-        cache_key = f"{ticker}_{fecha}"
+        # 1. VERIFICAR CACHÉ (Llave incluye el ticker, la fecha y el top)
+        cache_key = f"{ticker}_{fecha}_{top}"
         if cache_key in CACHE:
             tiempo_guardado = CACHE[cache_key]['timestamp']
             if time.time() - tiempo_guardado < TIEMPO_EXPIRACION:
-                logger.info(f"Entregando datos desde el Caché para {ticker}")
+                logger.info(f"Entregando desde Caché: {ticker} (Top {top})")
                 return CACHE[cache_key]['datos']
 
-        # 2. SI NO HAY CACHÉ VÁLIDO, PREGUNTAMOS A YAHOO
-        logger.info(f"Consultando a Yahoo Finance para {ticker} (Caché vacío o expirado)")
+        # 2. CONSULTAR A YAHOO FINANCE
+        logger.info(f"Consultando Yahoo Finance: {ticker}")
         activo = yf.Ticker(ticker)
         fechas = activo.options
         
@@ -44,14 +43,10 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
             
         historial = activo.history(period="1d")
         if historial.empty:
-            return {"error": "Yahoo Finance no devolvió precio spot. Intenta de nuevo."}
+            return {"error": "No se obtuvo precio spot."}
         
         precio_actual = historial['Close'].iloc[-1]
-        
-        if fecha and fecha in fechas:
-            target_date = fecha
-        else:
-            target_date = fechas[0]
+        target_date = fecha if (fecha and fecha in fechas) else fechas[0]
         
         cadena = activo.option_chain(target_date)
         
@@ -70,17 +65,17 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
         df_otm = df[df['Estado'] == 'OTM'].copy()
         
         if df_otm.empty:
-            return {"error": "No se encontraron contratos OTM con volumen para esta fecha."}
+            return {"error": "No hay contratos OTM con volumen."}
         
-        calls_top = df_otm[df_otm['Tipo'] == 'CALL'].sort_values(by='volume', ascending=False).head(9)
-        puts_top = df_otm[df_otm['Tipo'] == 'PUT'].sort_values(by='volume', ascending=False).head(9)
+        # Usamos la variable 'top' enviada desde cTrader
+        calls_top = df_otm[df_otm['Tipo'] == 'CALL'].sort_values(by='volume', ascending=False).head(top)
+        puts_top = df_otm[df_otm['Tipo'] == 'PUT'].sort_values(by='volume', ascending=False).head(top)
         
         tabla_final = pd.concat([calls_top, puts_top]).sort_values(by='volume', ascending=False)
         
         lista_comprimida = [f"{fila['strike']}:{fila['Tipo']}:{int(fila['volume'])}" for _, fila in tabla_final.iterrows()]
         string_final = "|".join(lista_comprimida)
         
-        # 3. EMPAQUETAR RESPUESTA
         respuesta_final = {
             "ticker": ticker,
             "precio_spot": round(precio_actual, 2),
@@ -89,7 +84,7 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
             "string_tradingview": string_final
         }
 
-        # 4. GUARDAR EN EL CACHÉ ANTES DE ENTREGAR
+        # Guardar en Caché
         CACHE[cache_key] = {
             'timestamp': time.time(),
             'datos': respuesta_final
@@ -98,8 +93,6 @@ def obtener_liquidez_otm(ticker: str, fecha: str = Query(None)):
         return respuesta_final
 
     except Exception as e:
-        error_msg = str(e)
-        if "Too Many Requests" in error_msg or "Rate limited" in error_msg:
-            return {"error": "Yahoo Finance nos ha bloqueado temporalmente por exceso de peticiones. Espera 15 minutos."}
-        logger.error(f"Error crítico: {error_msg}")
-        return {"error": f"Error interno en el servidor: {error_msg}"}
+        if "Too Many Requests" in str(e):
+            return {"error": "Yahoo bloqueó la IP temporalmente. Espera 15 min."}
+        return {"error": f"Error interno: {str(e)}"}
